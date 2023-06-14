@@ -30,4 +30,3 @@ question = input("Enter a query: ")
 response = model({"query: ": question})
 response["source_documents"] = vec_store.documents
 print(response)
-# model.run()
