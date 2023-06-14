@@ -1,32 +1,63 @@
 import openai
-from dotenv import load_dotenv
 import os
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.vectorstores import Chroma
-from langchain import OpenAI, VectorDBQA
+from dotenv import load_dotenv
+import langchain
 from langchain.document_loaders import DirectoryLoader
-
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+def embed_document(document: str):
+    response = openai.Completion.create(
+        engine="davinci",
+        prompt=document,
+        max_tokens=0,
+        n=1,
+        stop=None,
+        temperature=0.5,
+    )
+    return response['choices'][0]['text']
 
-loader = DirectoryLoader('docs', glob='**/*.txt')
-docs = loader.load()
+loader = DirectoryLoader('docs', glob= '**/*.txt')
 
-char_text_split = CharacterTextSplitter(chunk_size=200, chunk_overlap=0)
 
-doc_texts = char_text_split.split_documents(docs)
-# print("L1", doc_texts)
+document = loader.load()
+embedded_document = embed_document(document)
+docs = [embedded_document[i:i+len(embedded_document)//3] for i in range(0, len(embedded_document), len(embedded_document)//3)]
 
-openai_embeddings = OpenAIEmbeddings(model='text-embedding-ada-002')
+def get_relevant_doc(question: str):
+    response = openai.Completion.create(
+        engine="davinci",
+        prompt=question,
+        max_tokens=0,
+        n=1,
+        stop=None,
+        temperature=0.5,
+    )
+    embedded_question = response['choices'][0]['text']
+    min_distance = float('inf')
+    relevant_doc = None
+    for doc in docs:
+        distance = langchain.distance(embedded_question, doc)
+        if distance < min_distance:
+            min_distance = distance
+            relevant_doc = doc
+    return relevant_doc
 
-vec_store = Chroma.from_documents(doc_texts, openai_embeddings)
+def answer_question(question: str):
+    relevant_doc = get_relevant_doc(question)
+    response = openai.Completion.create(
+        engine="davinci",
+        prompt=f"{relevant_doc}\n\nQ: {question}\nA:",
+        max_tokens=150,
+        n=1,
+        stop=None,
+        temperature=0.5,
+    )
+    return response['choices'][0]['text']
 
-model = VectorDBQA.from_chain_type(llm=OpenAI(), chain_type="stuff", return_source_documents=True)
+question = input("Enter a question: ")
+answer = answer_question(question)
+print(answer)
 
-question = input("Enter a query: ")
-response = model({"query: ": question})
-response["source_documents"] = vec_store.documents
-print(response)
+
